@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CaveGame — kleines Minecraft-artiges Spiel</title>
+  <style>
+    :root{--bg:#0b0b0f;--ui:#111217;--panel:#0f1116;--text:#d7d7d7}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter,Segoe UI,Roboto,system-ui,Arial}
+    .wrap{display:flex;height:100vh;gap:12px;padding:12px;box-sizing:border-box}
+    canvas{background:linear-gradient(#0e1220,#071018);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.6)}
+    .sidebar{width:300px;display:flex;flex-direction:column;gap:12px}
+    .panel{background:var(--panel);padding:12px;border-radius:8px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
+    h1{margin:0 0 8px 0;font-size:16px}
+    .hotbar{display:flex;gap:6px;margin-top:8px}
+    .slot{width:36px;height:36px;border-radius:6px;background:#121217;display:flex;align-items:center;justify-content:center;font-weight:700}
+    .slot.active{outline:2px solid #9fd8ff;box-shadow:0 2px 8px rgba(159,216,255,0.08)}
+    .controls{font-size:13px;color:#bfc7d6}
+    .footer{margin-top:auto;font-size:12px;color:#9aa5b6}
+    button{background:#17202a;color:var(--text);border:1px solid rgba(255,255,255,0.02);padding:8px;border-radius:6px}
+    a{color:#9fd8ff}
+    .legend{display:flex;gap:8px;flex-wrap:wrap}
+    .legend .item{display:flex;gap:6px;align-items:center}
+    .color{width:18px;height:14px;border-radius:3px}
+    pre{white-space:pre-wrap;font-size:12px;color:#bfc7d6}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="game" width="960" height="600"></canvas>
+    <div class="sidebar">
+      <div class="panel">
+        <h1>CaveGame — kurz & funktional</h1>
+        <div class="controls">
+          Ein kleines 2D-Block-Spiel: Graben, platzieren, laufen.
+        </div>
+        <div style="margin-top:10px">
+          <strong>Tasten</strong>
+          <pre>W/A/S/D: bewegen
+Leertaste: springen
+Linke Maustaste: abbauen
+Rechte Maustaste: platzieren
+Ziffern 1-4: Block auswählen
+R: Welt neu generieren
+</pre>
+        </div>
+        <div style="margin-top:6px">
+          <strong>Blöcke</strong>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="hotbar" id="hotbar"></div>
+      </div>
+
+      <div class="panel">
+        <strong>Optionen</strong>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-direction:column">
+          <label><input type="checkbox" id="showGrid"> Gitter anzeigen</label>
+          <label><input type="checkbox" id="physics" checked> Physik (Gravitation)</label>
+          <label>Rendermaßstab: <input id="scale" type="range" min="8" max="24" value="16"></label>
+          <div style="display:flex;gap:8px"><button id="regenerate">Neu generieren (R)</button><button id="export">Exportieren (.json)</button></div>
+        </div>
+      </div>
+
+      <div class="panel footer">
+        <div>Speichere diese Seite als <code>cavegame.html</code> und öffne sie im Browser.</div>
+        <div style="margin-top:8px">Kleines Projekt — kein Anspruch auf Perfektion. Perfekt für Modding-Experimente.</div>
+        <div style="margin-top:8px">Viel Spaß beim Graben.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// --- Konfiguration ---
+const CONFIG = {
+  cols: 120,
+  rows: 60,
+  tile: 16,
+  skyLevel: 18,
+  seed: Math.floor(Math.random()*1e9),
+  blockTypes: [
+    {id:0,name:'Luft', solid:false, color:null},
+    {id:1,name:'Erde', solid:true, color:'#6b4a2f'},
+    {id:2,name:'Stein', solid:true, color:'#5a6169'},
+    {id:3,name:'Kohle', solid:true, color:'#0f0f0f'},
+    {id:4,name:'Holz', solid:true, color:'#8b5a2b'}
+  ]
+};
+
+// --- Hilfsfunktionen (kleiner seeded RNG) ---
+function mulberry32(a){return function(){var t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296;}};
+let rng = mulberry32(CONFIG.seed);
+
+// --- Welt ---
+let world = new Uint8Array(CONFIG.cols*CONFIG.rows);
+function idx(x,y){return y*CONFIG.cols+x}
+
+function generateWorld(){
+  rng = mulberry32(CONFIG.seed = Math.floor(Math.random()*1e9));
+  world.fill(0);
+  // einfacher Landschaftsprofil
+  for(let x=0;x<CONFIG.cols;x++){
+    let h = Math.floor(CONFIG.rows - (CONFIG.skyLevel + Math.floor((rng()*6) + Math.sin(x*0.12)*3)));
+    for(let y=h;y<CONFIG.rows;y++){
+      let depth = y-h;
+      if(depth<2) world[idx(x,y)]=1; // oberste schicht = Erde
+      else if(depth<6) world[idx(x,y)]=2; // stein
+      else world[idx(x,y)]=2;
+      // zufällige kohleadern
+      if(world[idx(x,y)]===2 && rng() < (0.02 + depth*0.001)) world[idx(x,y)]=3;
+    }
+  }
+  // einfache zellenautomate für höhlen
+  for(let pass=0;pass<4;pass++){
+    let copy = new Uint8Array(world);
+    for(let x=1;x<CONFIG.cols-1;x++) for(let y=1;y<CONFIG.rows-1;y++){
+      let solidCount=0;
+      for(let ox=-1;ox<=1;ox++) for(let oy=-1;oy<=1;oy++){
+        if(ox===0 && oy===0) continue;
+        if(copy[idx(x+ox,y+oy)]!==0) solidCount++;
+      }
+      if(solidCount<4) world[idx(x,y)]=0; else world[idx(x,y)]=copy[idx(x,y)];
+    }
+  }
+  placeTrees();
+}
+
+function placeTrees(){
+  for(let x=2;x<CONFIG.cols-2;x++){
+    if(rng() < 0.02){
+      // finde höhe
+      let y=0; for(y=0;y<CONFIG.rows;y++) if(world[idx(x,y)]!==0) break;
+      if(y>3 && world[idx(x,y)]===1){
+        // baumstamm
+        world[idx(x,y-1)]=4; world[idx(x,y-2)]=4;
+        // krone
+        for(let ox=-2;ox<=2;ox++) for(let oy=-3;oy<=-1;oy++){
+          if(Math.abs(ox)+Math.abs(oy) < 4) world[idx(x+ox,y+oy)]=1;
+        }
+      }
+    }
+  }
+}
+
+// --- Rendering & Spielsteuerung ---
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let showGrid = false; let physics = true;
+const hotbarEl = document.getElementById('hotbar');
+const legendEl = document.getElementById('legend');
+
+let state = {
+  scale: CONFIG.tile,
+  camX: 0,
+  camY: 0,
+  player: {x: 60, y: 12, w:0.8, h:1.6, vx:0, vy:0, onGround:false},
+  selected:1
+};
+
+function initUI(){
+  // hotbar
+  for(let i=1;i<=4;i++){
+    const div = document.createElement('div'); div.className='slot'+(i===state.selected? ' active':''); div.innerText = i; div.dataset.id=i;
+    div.onclick = ()=>{state.selected = Number(div.dataset.id); updateHotbar();}; hotbarEl.appendChild(div);
+  }
+  // legend
+  CONFIG.blockTypes.forEach(b=>{ if(b.id===0) return; const item = document.createElement('div'); item.className='item'; item.innerHTML = `<div class="color" style="background:${b.color}"></div> <div>${b.name}</div>`; legendEl.appendChild(item); });
+  // controls
+  document.getElementById('showGrid').addEventListener('change',e=>showGrid=e.target.checked);
+  document.getElementById('physics').addEventListener('change',e=>physics=e.target.checked);
+  document.getElementById('regenerate').addEventListener('click',()=>{CONFIG.seed = Math.floor(Math.random()*1e9); generateWorld();});
+  document.getElementById('scale').addEventListener('input',e=>{state.scale=Number(e.target.value); resizeCanvas();});
+  document.getElementById('export').addEventListener('click',exportWorld);
+}
+function updateHotbar(){
+  Array.from(hotbarEl.children).forEach(ch=>{ ch.classList.toggle('active', Number(ch.dataset.id)===state.selected)});
+}
+
+function resizeCanvas(){
+  const w = Math.min(window.innerWidth-340, Math.floor(CONFIG.cols*state.scale/1.2));
+  const h = Math.min(window.innerHeight-40, Math.floor(CONFIG.rows*state.scale/1.1));
+  canvas.width = w; canvas.height = h;
+}
+
+window.addEventListener('resize',resizeCanvas);
+
+// simple collision helper
+function isSolidAt(tx,ty){
+  if(tx<0 || tx>=CONFIG.cols || ty<0 || ty>=CONFIG.rows) return true;
+  return CONFIG.blockTypes[ world[idx(tx,ty)] ].solid;
+}
+
+function worldToScreen(wx,wy){
+  return [(wx - state.camX)*state.scale, (wy - state.camY)*state.scale];
+}
+
+function screenToWorld(sx,sy){
+  return [ Math.floor(sx/state.scale + state.camX), Math.floor(sy/state.scale + state.camY) ];
+}
+
+// Input
+let keys = {};
+window.addEventListener('keydown',e=>{ keys[e.key.toLowerCase()]=true; if(e.key>='1' && e.key<='4'){ state.selected = Number(e.key); updateHotbar(); } if(e.key.toLowerCase()==='r'){ CONFIG.seed = Math.floor(Math.random()*1e9); generateWorld(); } if(e.code==='Space') e.preventDefault(); });
+window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
+
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('mousedown',onMouseDown);
+
+function onMouseDown(e){const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left, my=e.clientY-rect.top; const [wx,wy]=screenToWorld(mx,my);
+  if(e.button===0){ // abbauen
+    if(inBounds(wx,wy)) world[idx(wx,wy)]=0;
+  } else if(e.button===2){ // platzieren
+    if(inBounds(wx,wy) && world[idx(wx,wy)]===0) world[idx(wx,wy)]=state.selected;
+  }
+}
+function inBounds(x,y){return x>=0 && x<CONFIG.cols && y>=0 && y<CONFIG.rows}
+
+// Export
+function exportWorld(){
+  const data = {cols:CONFIG.cols,rows:CONFIG.rows,seed:CONFIG.seed,tile:state.scale,world:Array.from(world)};
+  const blob = new Blob([JSON.stringify(data)],{type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='cave_world.json'; a.click(); URL.revokeObjectURL(url);
+}
+
+// Game loop
+function update(dt){
+  // player control
+  const p = state.player;
+  let speed = 6; if(keys['shift']) speed=10;
+  if(keys['a']) p.vx = -speed; else if(keys['d']) p.vx = speed; else p.vx = 0;
+  if(keys['w'] || keys[' ']){ if(p.onGround){ p.vy = -10; p.onGround=false; } }
+  // physics
+  if(physics){ p.vy += 25*dt; }
+  // apply movement
+  let nx = p.x + p.vx*dt;
+  // horizontal collision
+  if(p.vx>0){ if(collide(nx + p.w/2, p.y - p.h/2) || collide(nx + p.w/2, p.y + p.h/2 - 0.01)) nx = Math.floor(nx + p.w/2) - p.w/2 - 0.001; }
+  if(p.vx<0){ if(collide(nx - p.w/2, p.y - p.h/2) || collide(nx - p.w/2, p.y + p.h/2 - 0.01)) nx = Math.ceil(nx - p.w/2) + p.w/2 + 0.001; }
+  p.x = nx;
+  let ny = p.y + p.vy*dt;
+  if(p.vy>0){ // down
+    if(collide(p.x - p.w/2, ny + p.h/2) || collide(p.x + p.w/2 - 0.01, ny + p.h/2)){
+      ny = Math.floor(ny + p.h/2) - p.h/2 - 0.001; p.vy=0; p.onGround=true;
+    } else p.onGround=false;
+  } else if(p.vy<0){ // up
+    if(collide(p.x - p.w/2, ny - p.h/2) || collide(p.x + p.w/2 - 0.01, ny - p.h/2)){
+      ny = Math.ceil(ny - p.h/2) + p.h/2 + 0.001; p.vy = 0;
+    }
+  }
+  p.y = ny;
+  // camera follow
+  state.camX = p.x - (canvas.width/state.scale)/2;
+  state.camY = p.y - (canvas.height/state.scale)/2;
+  clampCamera();
+}
+
+function collide(wx,wy){
+  let tx=Math.floor(wx), ty=Math.floor(wy);
+  if(tx<0||ty<0||tx>=CONFIG.cols||ty>=CONFIG.rows) return true;
+  return CONFIG.blockTypes[ world[idx(tx,ty)] ].solid;
+}
+
+function clampCamera(){
+  const maxX = CONFIG.cols - canvas.width/state.scale; const maxY = CONFIG.rows - canvas.height/state.scale;
+  if(state.camX<0) state.camX=0; if(state.camY<0) state.camY=0; if(state.camX>maxX) state.camX=maxX; if(state.camY>maxY) state.camY=maxY;
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const colsOnScreen = Math.ceil(canvas.width/state.scale)+2;
+  const rowsOnScreen = Math.ceil(canvas.height/state.scale)+2;
+  const startX = Math.floor(state.camX);
+  const startY = Math.floor(state.camY);
+  // background sky
+  const grad = ctx.createLinearGradient(0,0,0,canvas.height);
+  grad.addColorStop(0,'#08101a'); grad.addColorStop(1,'#071018'); ctx.fillStyle=grad; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // draw blocks
+  for(let x=startX;x<startX+colsOnScreen;x++) for(let y=startY;y<startY+rowsOnScreen;y++){
+    if(x<0||y<0||x>=CONFIG.cols||y>=CONFIG.rows) continue;
+    const b = world[idx(x,y)]; if(b===0) continue;
+    const sx = Math.round((x - state.camX)*state.scale);
+    const sy = Math.round((y - state.camY)*state.scale);
+    // simple light: based on depth
+    let color = CONFIG.blockTypes[b].color || '#ffffff';
+    // darker if deeper
+    const shade = 1 - Math.min(0.5, (y/CONFIG.rows)*0.6);
+    ctx.fillStyle = shadeColor(color, shade);
+    roundRect(ctx,sx,sy,state.scale,state.scale,Math.max(0, state.scale*0.08));
+    ctx.fill();
+    // subtle edge
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+  // grid
+  if(showGrid){ ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1; for(let gx=0;gx<=canvas.width;gx+=state.scale){ ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,canvas.height); ctx.stroke(); } for(let gy=0;gy<=canvas.height;gy+=state.scale){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(canvas.width,gy); ctx.stroke(); } }
+  // player
+  const p = state.player;
+  const [px,py] = worldToScreen(p.x - p.w/2, p.y - p.h/2);
+  ctx.fillStyle = '#e7d4b8'; ctx.fillRect(px,py, p.w*state.scale, p.h*state.scale);
+  // crosshair
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.moveTo(canvas.width/2-6,canvas.height/2); ctx.lineTo(canvas.width/2+6,canvas.height/2); ctx.moveTo(canvas.width/2,canvas.height/2-6); ctx.lineTo(canvas.width/2,canvas.height/2+6); ctx.stroke();
+  // HUD hotbar
+  drawHotbarHUD();
+}
+
+function drawHotbarHUD(){
+  // draw small hotbar at bottom-left
+  const size = 40; const padding=8; const x = 14; const y = canvas.height - size - 14;
+  ctx.fillStyle='rgba(10,10,12,0.6)'; roundRect(ctx,x,y, (size+8)*4 + 8, size+8,8); ctx.fill();
+  for(let i=1;i<=4;i++){
+    const ix = x + 8 + (i-1)*(size+8);
+    const iy = y + 4;
+    ctx.fillStyle = '#121217'; roundRect(ctx,ix,iy,size,size,6); ctx.fill();
+    if(i===state.selected){ ctx.strokeStyle='#9fd8ff'; ctx.lineWidth=2; ctx.strokeRect(ix-1,iy-1,size+2,size+2); }
+    // draw block color
+    const b = CONFIG.blockTypes[i]; if(b && b.color){ ctx.fillStyle=b.color; roundRect(ctx,ix+6,iy+6,size-12,size-12,4); ctx.fill(); }
+    // number
+    ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font = '14px monospace'; ctx.fillText(String(i), ix+4, iy+size-6);
+  }
+}
+
+// helpers
+function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function shadeColor(hex, factor){ if(!hex) return hex; const c = hex.replace('#',''); const r = Math.floor(parseInt(c.substring(0,2),16)*factor); const g = Math.floor(parseInt(c.substring(2,4),16)*factor); const b = Math.floor(parseInt(c.substring(4,6),16)*factor); return `rgb(${r},${g},${b})`; }
+
+// main loop
+let last=0; function loop(t){ if(!last) last=t; const dt = Math.min(0.05,(t-last)/1000); update(dt); draw(); last=t; requestAnimationFrame(loop); }
+
+// init
+generateWorld(); initUI(); resizeCanvas(); updateHotbar(); requestAnimationFrame(loop);
+
+// put player above ground
+(function placePlayer(){
+  for(let y=0;y<CONFIG.rows;y++) if(world[idx(60,y)]!==0){ state.player.y = y-2; break; }
+})();
+
+// mouse aiming: allow mining with held mouse
+let mouseDown=false; window.addEventListener('mousedown',()=>mouseDown=true); window.addEventListener('mouseup',()=>mouseDown=false);
+canvas.addEventListener('mousemove',e=>{ if(mouseDown){ const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left, my=e.clientY-rect.top; const [wx,wy]=screenToWorld(mx,my); if(isFinite(wx) && isFinite(wy) && inBounds(wx,wy)){
+  if(mouseDown && (event.buttons & 1)) world[idx(wx,wy)]=0; else if(mouseDown && (event.buttons & 2) && world[idx(wx,wy)]===0) world[idx(wx,wy)]=state.selected;
+}}});
+
+</script>
+</body>
+</html>
