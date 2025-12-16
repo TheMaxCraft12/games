@@ -44,21 +44,32 @@ footer{text-align:center;opacity:.6;padding:30px 10px;font-size:.9rem}
   <span>GitHub Pages · Chrome-kompatibel</span>
 </footer>
 <script>
-// MANUELLE SPIELE-LISTE für GitHub Pages
+// Fertige Spiele-Liste mit Debug
 const games = [
   { title: '3D Runner', desc: 'Endlos-Runner mit Highscore', path: 'runner/' },
   { title: 'Klickspiel', desc: 'Klicke so schnell du kannst', path: 'clicker/' },
-  { title: 'Block Forge', desc: 'Fast wie Minecraft', path: 'blockforge/' },
-  { title: 'Slap Sim', desc: 'Ein lustiger Slap Sim', path: 'slapsim/' },
-
+  { title: 'Blockforge', desc: 'Baue und kreiere deine Welt', path: 'blockforge/' },
+  { title: 'Slap Sim', desc: 'Simuliere Slaps und Spaß', path: 'slapsim/' },
 ];
 
 const grid = document.getElementById('grid');
+
+if(games.length === 0){
+  console.warn('Keine Spiele in der Liste gefunden!');
+} else {
+  console.log('Folgende Spiele werden angezeigt:');
+}
+
 games.forEach(g => {
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.innerHTML = `<h3>${g.title}</h3><p>${g.desc}</p><a href='${g.path}'>Starten</a>`;
-  grid.appendChild(card);
+  try {
+    console.log(`Titel: ${g.title}, Pfad: ${g.path}`);
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<h3>${g.title}</h3><p>${g.desc}</p><a href='${g.path}'>Starten</a>`;
+    grid.appendChild(card);
+  } catch(e) {
+    console.error(`Fehler beim Erstellen der Karte für ${g.title}:`, e);
+  }
 });
 </script>
 </body>
