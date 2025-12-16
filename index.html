@@ -95,24 +95,31 @@ footer{
   <span>GitHub Pages · Chrome-kompatibel</span>
 </footer>
 <script>
-/* AUTOMATISCHES SPIEL-MENÜ */
-const games = [
-  { title: '3D Runner', desc: 'Endlos-Runner mit Highscore', path: 'runner/' },
-  // Hier weitere Spiele hinzufügen
-  // { title: 'Neues Spiel', desc: 'Beschreibung', path: 'spiel2/' },
-];
+/* AUTOMATISCHES SPIEL-MENÜ, Ordner automatisch erkennen */
+async function getGames() {
+  const grid = document.getElementById('grid');
+  try {
+    const res = await fetch('./');
+    const text = await res.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'text/html');
+    const links = Array.from(doc.querySelectorAll('a'))
+                     .map(a=>a.getAttribute('href'))
+                     .filter(h=>h && !h.startsWith('#') && h.endsWith('/'));
 
-const grid = document.getElementById('grid');
-games.forEach(g => {
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.innerHTML = `
-    <h3>${g.title}</h3>
-    <p>${g.desc}</p>
-    <a href="${g.path}">Starten</a>
-  `;
-  grid.appendChild(card);
-});
+    links.forEach(folder => {
+      const name = folder.replace(/\/$/, '').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h3>${name}</h3><p>Spiel starten</p><a href='${folder}'>Starten</a>`;
+      grid.appendChild(card);
+    });
+  } catch(e){
+    console.error('Fehler beim Laden der Spiele:', e);
+  }
+}
+
+getGames();
 </script>
 </body>
 </html>
