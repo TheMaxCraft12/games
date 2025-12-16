@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Runner mit persistentem Highscore</title>
+<style>
+html, body { margin: 0; padding: 0; height: 100%; background: #0a0f15; font-family: Arial, Helvetica, sans-serif; color: #fff; }
+#game { width: 100%; height: 100vh; overflow: hidden; position: relative; }
+#hud { position: absolute; top: 10px; left: 10px; padding: 8px 12px; background: rgba(0,0,0,0.4); border-radius: 6px; z-index: 5; font-size: 16px; }
+#overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 20px; background: rgba(0,0,0,0.7); border-radius: 10px; text-align: center; z-index: 10; }
+button { padding: 10px 18px; border-radius: 8px; border: none; background: #1a2330; color: #fff; font-size: 16px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">Punkte: <span id="score">0</span> | Highscore: <span id="highscore">0</span></div>
+<div id="overlay">
+<h2>3D Runner</h2>
+<p>A/D bewegen – Leertaste springen</p>
+<button id="start">Start</button>
+</div>
+<script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+<script>
+let scene, camera, renderer, player;
+let obstacles = [];
+let running = false;
+let score = 0;
+let highscore = parseInt(localStorage.getItem('highscore') || '0');
+let lanes = [-2, 0, 2];
+let currentLane = 1;
+let velocityY = 0;
+let gravity = -1.2;
+let onGround = true;
+let jumpStrength = 4;
+
+function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 200);
+  camera.position.set(0, 5, 12);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  document.getElementById('game').appendChild(renderer.domElement);
+
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(5, 10, 5);
+  scene.add(light);
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 500), new THREE.MeshStandardMaterial({ color: 0x111922 }));
+  ground.rotation.x = -Math.PI/2;
+  scene.add(ground);
+
+  player = new THREE.Mesh(new THREE.BoxGeometry(1,2,1), new THREE.MeshStandardMaterial({ color: 0xff4444 }));
+  player.position.set(0, 1, 0);
+  scene.add(player);
+
+  for (let i = 1; i < 8; i++) spawnObstacle(-i*20);
+
+  window.addEventListener('keydown', controls);
+  updateHUD();
+  animate();
+}
+
+function controls(e) {
+  if (!running) return;
+  if (e.code === 'KeyA') currentLane = Math.max(0, currentLane - 1);
+  if (e.code === 'KeyD') currentLane = Math.min(2, currentLane + 1);
+  if (e.code === 'Space' && onGround) { velocityY = jumpStrength; onGround = false; }
+}
+
+function spawnObstacle(z) {
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5), new THREE.MeshStandardMaterial({ color: 0x55aaff }));
+  box.position.set(lanes[Math.floor(Math.random()*3)], 1, z);
+  scene.add(box);
+  obstacles.push(box);
+}
+
+function resetGame() {
+  obstacles.forEach(o => scene.remove(o));
+  obstacles = [];
+  for (let i = 1; i < 8; i++) spawnObstacle(-i*20);
+  if (score > highscore) {
+    highscore = score;
+    localStorage.setItem('highscore', highscore);
+  }
+  score = 0;
+  currentLane = 1;
+  player.position.set(0,1,0);
+  velocityY = 0;
+  onGround = true;
+  running = true;
+  updateHUD();
+}
+
+function updateHUD() {
+  document.getElementById('score').textContent = score;
+  document.getElementById('highscore').textContent = highscore;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (running) {
+    player.position.x += (lanes[currentLane] - player.position.x) * 0.2;
+
+    velocityY += gravity*0.1;
+    player.position.y += velocityY*0.1;
+    if (player.position.y <= 1) { player.position.y = 1; velocityY = 0; onGround = true; }
+
+    obstacles.forEach((o,i) => {
+      o.position.z += 1;
+      if (o.position.z > 10) { scene.remove(o); obstacles.splice(i,1); spawnObstacle(-150); score++; updateHUD(); }
+      if (Math.abs(o.position.z-player.position.z)<1.5 && Math.abs(o.position.x-player.position.x)<1.2 && player.position.y<1.4) {
+        running = false;
+        document.getElementById('overlay').style.display = 'block';
+      }
+    });
+    updateHUD();
+  }
+  renderer.render(scene, camera);
+}
+
+document.getElementById('start').onclick = () => {
+  document.getElementById('overlay').style.display = 'none';
+  resetGame();
+};
+
+init();
+</script>
+</body>
+</html>
