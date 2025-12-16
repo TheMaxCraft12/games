@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mein Klickspiel</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f0f4ff;
+      margin-top: 100px;
+    }
+
+    h1 {
+      color: #333;
+    }
+
+    button {
+      background-color: #4CAF50; /* Grüner Hintergrund */
+      color: white; /* Weiße Schrift */
+      border: none;
+      padding: 15px 30px;
+      font-size: 20px;
+      border-radius: 10px; /* Abgerundete Ecken */
+      cursor: pointer;
+      transition: 0.3s; /* Sanfte Animation beim Hover */
+    }
+
+    button:hover {
+      background-color: #45a049; /* Etwas dunkleres Grün beim Drüberfahren */
+      transform: scale(1.05); /* Leichtes Vergrößern */
+    }
+
+    #countDisplay {
+      font-size: 24px;
+      color: #222;
+    }
+  </style>
+
+  <script>
+    let count = 0;
+    let timer;
+    let seconds = 0;
+
+    function startGame() {
+      count = 0;
+      seconds = 0;
+      document.getElementById("countDisplay").innerText = count;
+      clearInterval(timer);
+      timer = setInterval(updateTime, 1000);
+    }
+
+    function updateTime() {
+      seconds++;
+      if (seconds >= 60) {
+        clearInterval(timer);
+        alert("Zeit ab! Dein Highscore: " + count);
+      }
+    }
+
+    function incrementCounter() {
+      if (seconds < 60) {
+        count++;
+        document.getElementById("countDisplay").innerText = count;
+      }
+    }
+  </script>
+</head>
+<body>
+  <h1>Mein Klickspiel</h1>
+  <button onclick="incrementCounter()">🎯 Klick mich!</button>
+  <p>Highscore: <span id="countDisplay">0</span></p>
+  <button onclick="startGame()">▶️ Spiel starten</button>
+</body>
+</html>
