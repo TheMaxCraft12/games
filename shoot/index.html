@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<title>3D Shooter – Debugged</title>
+<style>
+body { margin:0; overflow:hidden; background:#000; }
+#ui { position: fixed; top: 10px; left: 10px; color: #eee; font-family: system-ui; font-size: 14px; }
+#center { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); color: #ffffff; font-family: system-ui; font-size: 32px; text-shadow: 0 0 10px #000; user-select: none; z-index: 10; }
+.hidden { display: none; pointer-events: none; }
+#crosshair { position: fixed; left: 50%; top: 50%; width: 20px; height: 20px; transform: translate(-50%, -50%); pointer-events: none; z-index: 5; }
+#crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.9); }
+#crosshair::before { left: 50%; top: 0; width: 2px; height: 20px; transform: translateX(-50%); }
+#crosshair::after { top: 50%; left: 0; width: 20px; height: 2px; transform: translateY(-50%); }
+</style>
+</head>
+<body>
+<div id="ui">❤️ <span id="hp">100</span> | 🔫 <span id="weapon">Pistol</span> | Level <span id="lvl">1</span></div>
+<div id="center">Click to Start</div>
+<div id="crosshair"></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050505);
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+camera.position.set(0, 1.6, 0);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+sun.position.set(10, 20, 10);
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+const player = new THREE.Object3D();
+player.position.set(0, 0, 10);
+player.hp = 100;
+scene.add(player);
+player.add(camera);
+const uiHP = document.getElementById('hp');
+const uiWeapon = document.getElementById('weapon');
+const uiLvl = document.getElementById('lvl');
+const center = document.getElementById('center');
+let running = false;
+let level = 1;
+let weaponIndex = 0;
+const weapons = [ { name: 'Pistol', speed: 0.9, damage: 1, rate: 300 }, { name: 'Rifle', speed: 1.4, damage: 1, rate: 120 }, { name: 'Shotgun', speed: 0.8, damage: 2, rate: 600, spread: 5 } ];
+let lastShot = 0;
+const bullets = [];
+const enemies = [];
+function spawnEnemy(type = 'slow') {
+  const presets = {
+    slow: { speed: 0.06, hp: 2, color: 0xaa2222 },
+    fast: { speed: 0.12, hp: 1, color: 0x22aa22 },
+    tank: { speed: 0.05, hp: 5, color: 0x2222aa }
+  };
+  const p = presets[type];
+  const e = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: p.color }));
+  e.position.set((Math.random() - 0.5) * 40, 0.5, -Math.random() * 40);
+  e.speed = p.speed;
+  e.hp = p.hp;
+  enemies.push(e);
+  scene.add(e);
+}
+function startLevel() { enemies.forEach(e => scene.remove(e)); enemies.length = 0; for (let i = 0; i < level * 3; i++) spawnEnemy(['slow', 'fast', 'tank'][i % 3]); uiLvl.textContent = level; }
+function shoot() { const w = weapons[weaponIndex]; const now = performance.now(); if (now - lastShot < w.rate) return; lastShot = now; const pellets = w.spread || 1; for (let i = 0; i < pellets; i++) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 6), new THREE.MeshStandardMaterial({ color: 0xffffff })); b.position.copy(camera.getWorldPosition(new THREE.Vector3())); b.dir = new THREE.Vector3(); camera.getWorldDirection(b.dir); b.dir.x += (Math.random() - 0.5) * 0.1; b.dir.y += (Math.random() - 0.5) * 0.1; b.speed = w.speed; b.damage = w.damage; bullets.push(b); scene.add(b); } }
+const keys = {};
+addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === 'Escape') togglePause(); if (e.key.toLowerCase() === 'q') { weaponIndex = (weaponIndex + 1) % weapons.length; uiWeapon.textContent = weapons[weaponIndex].name; } });
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+addEventListener('mousedown', () => running && shoot());
+let yaw = 0, pitch = 0;
+addEventListener('mousemove', e => { if (!running || document.pointerLockElement !== document.body) return; yaw -= e.movementX * 0.002; pitch -= e.movementY * 0.002; pitch = Math.max(-1.5, Math.min(1.5, pitch)); player.rotation.y = yaw; camera.rotation.x = pitch; });
+function loop() { requestAnimationFrame(loop); if (!running) return; const move = 0.1; if (keys['w']) player.translateZ(-move); if (keys['s']) player.translateZ(move); if (keys['a']) player.translateX(-move); if (keys['d']) player.translateX(move); for (let i = bullets.length - 1; i >= 0; i--) { const b = bullets[i]; b.position.add(b.dir.clone().multiplyScalar(b.speed)); if (b.position.length() > 300) { scene.remove(b); bullets.splice(i, 1); } } for (let ei = enemies.length - 1; ei >= 0; ei--) { const e = enemies[ei]; e.lookAt(player.position); e.translateZ(e.speed); if (e.position.distanceTo(player.position) < 1) { player.hp -= 1; uiHP.textContent = player.hp; if (player.hp <= 0) gameOver(); } for (let bi = bullets.length - 1; bi >= 0; bi--) { const b = bullets[bi]; if (e.position.distanceTo(b.position) < 0.7) { e.hp -= b.damage; scene.remove(b); bullets.splice(bi, 1); if (e.hp <= 0) { scene.remove(e); enemies.splice(ei, 1); break; } } } } if (enemies.length === 0) { level++; startLevel(); } renderer.render(scene, camera); }
+function togglePause() { running = !running; center.textContent = running ? '' : 'Paused'; center.classList.toggle('hidden', running); running ? document.body.requestPointerLock() : document.exitPointerLock(); }
+function gameOver() { running = false; center.textContent = 'Game Over'; center.classList.remove('hidden'); document.exitPointerLock(); }
+center.onclick = () => { center.classList.add('hidden'); center.textContent = ''; running = true; player.hp = 100; uiHP.textContent = 100; level = 1; startLevel(); document.body.requestPointerLock(); };
+loop();
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+</script>
+</body>
+</html>
